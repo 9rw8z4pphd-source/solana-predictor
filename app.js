@@ -1,339 +1,461 @@
 // ============================================================
-//  SOLANA PREDICTOR — app.js
-//  Fetches live data, runs 5 signals, builds consensus
+//  SOLANA PREDICTOR v2 — app.js
+//  7 signals · live chart · history log · consensus engine
 // ============================================================
 
-// ---------- CONFIG ----------
-const REFRESH_INTERVAL_MS = 60000; // refresh every 60 seconds
+const REFRESH_MS  = 60000;
+const CIRCUMFERENCE = 314; // 2 * PI * 50 (ring radius)
 
-// ---------- STATE ----------
-let previousPrice = null;
+let priceChart    = null;
+let historyLog    = [];
+let countdown     = 60;
+let countdownTimer = null;
 
 // ============================================================
-//  UTILITY HELPERS
+//  UTILITIES
 // ============================================================
+const $ = id => document.getElementById(id);
+const setText = (id, val) => { const el = $(id); if (el) el.textContent = val; };
 
 function formatPrice(n) {
   return '$' + Number(n).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
-
-function formatLargeNumber(n) {
-  if (n >= 1_000_000_000) return '$' + (n / 1_000_000_000).toFixed(2) + 'B';
-  if (n >= 1_000_000)     return '$' + (n / 1_000_000).toFixed(2) + 'M';
+function formatBig(n) {
+  if (n >= 1e12) return '$' + (n/1e12).toFixed(2) + 'T';
+  if (n >= 1e9)  return '$' + (n/1e9).toFixed(2) + 'B';
+  if (n >= 1e6)  return '$' + (n/1e6).toFixed(2) + 'M';
   return '$' + Number(n).toLocaleString();
 }
-
-function setEl(id, text) {
-  const el = document.getElementById(id);
-  if (el) el.textContent = text;
+function formatPct(n) {
+  return (n >= 0 ? '+' : '') + Number(n).toFixed(2) + '%';
+}
+function timeNow() {
+  return new Date().toLocaleTimeString('en-AU', { hour:'2-digit', minute:'2-digit', second:'2-digit' });
 }
 
-function setClass(id, cls) {
-  const el = document.getElementById(id);
-  if (el) { el.className = el.className.replace(/bullish|bearish|neutral/g, '').trim() + ' ' + cls; }
-}
-
-function now() {
-  return new Date().toLocaleTimeString('en-AU', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+// ============================================================
+//  COUNTDOWN RING
+// ============================================================
+function startCountdown() {
+  if (countdownTimer) clearInterval(countdownTimer);
+  countdown = 60;
+  countdownTimer = setInterval(() => {
+    countdown--;
+    if (countdown < 0) countdown = 60;
+    setText('refresh-label', countdown + 's');
+    const offset = CIRCUMFERENCE - (countdown / 60) * 94.2;
+    const ring = $('ring-fill');
+    if (ring) ring.style.strokeDashoffset = offset;
+  }, 1000);
 }
 
 // ============================================================
 //  API CALLS
 // ============================================================
-
-// --- Solana + Bitcoin price data from CoinGecko (free, no key needed) ---
 async function fetchCryptoData() {
   try {
-    const res = await fetch(
-      'https://api.coingecko.com/api/v3/simple/price?ids=solana,bitcoin&vs_currencies=usd&include_24hr_change=true&include_24hr_vol=true&include_7d_change=true'
+    const r = await fetch(
+      'https://api.coingecko.com/api/v3/simple/price?ids=solana,bitcoin&vs_currencies=usd' +
+      '&include_24hr_change=true&include_24hr_vol=true&include_7d_change=true&include_market_cap=true'
     );
-    const data = await res.json();
-    return data;
-  } catch (e) {
-    console.error('CoinGecko fetch failed:', e);
-    return null;
-  }
+    return await r.json();
+  } catch(e) { console.error('CoinGecko price error:', e); return null; }
 }
 
-// --- Fear & Greed Index from Alternative.me (free, no key needed) ---
+async function fetchSOLDetails() {
+  try {
+    const r = await fetch(
+      'https://api.coingecko.com/api/v3/coins/solana?localization=false&tickers=false&community_data=false&developer_data=false'
+    );
+    return await r.json();
+  } catch(e) { console.error('SOL details error:', e); return null; }
+}
+
 async function fetchFearGreed() {
   try {
-    const res = await fetch('https://api.alternative.me/fng/?limit=1');
-    const data = await res.json();
-    return parseInt(data.data[0].value);
-  } catch (e) {
-    console.error('Fear & Greed fetch failed:', e);
-    return null;
-  }
+    const r = await fetch('https://api.alternative.me/fng/?limit=1');
+    const d = await r.json();
+    return parseInt(d.data[0].value);
+  } catch(e) { console.error('Fear&Greed error:', e); return 50; }
 }
 
-// --- Historical SOL prices for RSI calculation (last 14 days) ---
 async function fetchSOLHistory() {
   try {
-    const res = await fetch(
+    const r = await fetch(
       'https://api.coingecko.com/api/v3/coins/solana/market_chart?vs_currency=usd&days=14&interval=daily'
     );
-    const data = await res.json();
-    // Returns array of [timestamp, price]
-    return data.prices.map(p => p[1]);
-  } catch (e) {
-    console.error('SOL history fetch failed:', e);
-    return null;
-  }
+    const d = await r.json();
+    return { prices: d.prices.map(p=>p[1]), timestamps: d.prices.map(p=>p[0]) };
+  } catch(e) { console.error('SOL history error:', e); return null; }
 }
 
 // ============================================================
 //  SIGNAL CALCULATORS
 // ============================================================
 
-// ---------- SIGNAL 1: MOMENTUM ----------
-// Uses 24h price change percentage
-// > +3%  → bullish
-// < -3%  → bearish
-// between → neutral
-function calcMomentum(change24h) {
-  const verdict = change24h > 3 ? 'bullish' : change24h < -3 ? 'bearish' : 'neutral';
-  const valueText = `24h change: ${change24h >= 0 ? '+' : ''}${change24h.toFixed(2)}%`;
-  return { verdict, valueText };
+function sigMomentum(change24h) {
+  const v = change24h ?? 0;
+  const verdict = v > 3 ? 'bullish' : v < -3 ? 'bearish' : 'neutral';
+  const why = v > 3
+    ? `Price is up ${formatPct(v)} — strong buying pressure over 24h`
+    : v < -3
+    ? `Price is down ${formatPct(v)} — sellers are dominating over 24h`
+    : `Price moved ${formatPct(v)} — within neutral range (±3%)`;
+  return { name:'Momentum', verdict, valueText:`24h change: ${formatPct(v)}`, why };
 }
 
-// ---------- SIGNAL 2: VOLUME ----------
-// Compares current 24h volume to a rough SOL average baseline
-// If volume > 150% of baseline → bullish (unusual activity)
-// If volume < 50% of baseline  → bearish (lack of interest)
-// Otherwise → neutral
-function calcVolume(vol24h) {
-  const BASELINE_VOL = 2_500_000_000; // ~$2.5B is a typical quiet SOL day
-  const ratio = vol24h / BASELINE_VOL;
+function sigVolume(vol24h) {
+  const BASELINE = 2_500_000_000;
+  const ratio = (vol24h ?? 0) / BASELINE;
   const verdict = ratio > 1.5 ? 'bullish' : ratio < 0.5 ? 'bearish' : 'neutral';
-  const valueText = `24h volume: ${formatLargeNumber(vol24h)} (${(ratio * 100).toFixed(0)}% of baseline)`;
-  return { verdict, valueText };
+  const why = ratio > 1.5
+    ? `Volume is ${(ratio*100).toFixed(0)}% of baseline — unusually high activity signals potential big move`
+    : ratio < 0.5
+    ? `Volume is only ${(ratio*100).toFixed(0)}% of baseline — market is quiet and directionless`
+    : `Volume at ${(ratio*100).toFixed(0)}% of baseline — normal trading activity`;
+  return { name:'Volume', verdict, valueText:`24h vol: ${formatBig(vol24h)} (${(ratio*100).toFixed(0)}% of $2.5B baseline)`, why };
 }
 
-// ---------- SIGNAL 3: FEAR & GREED ----------
-// 0–24   → Extreme Fear   → bullish (contrarian: market oversold)
-// 25–44  → Fear           → bullish (leaning contrarian)
-// 45–55  → Neutral        → neutral
-// 56–75  → Greed          → bearish (market may be overheated)
-// 76–100 → Extreme Greed  → bearish (strong contrarian sell signal)
-function calcFearGreed(score) {
+function sigFearGreed(score) {
+  score = score ?? 50;
   let verdict, label;
-  if (score <= 24)      { verdict = 'bullish'; label = 'Extreme Fear'; }
-  else if (score <= 44) { verdict = 'bullish'; label = 'Fear'; }
-  else if (score <= 55) { verdict = 'neutral';  label = 'Neutral'; }
-  else if (score <= 75) { verdict = 'bearish'; label = 'Greed'; }
-  else                  { verdict = 'bearish'; label = 'Extreme Greed'; }
-  const valueText = `Score: ${score}/100 — ${label}`;
-  return { verdict, valueText };
+  if      (score <= 24) { verdict='bullish'; label='Extreme Fear — contrarian buy signal'; }
+  else if (score <= 44) { verdict='bullish'; label='Fear — market may be oversold'; }
+  else if (score <= 55) { verdict='neutral';  label='Neutral — no strong emotional extreme'; }
+  else if (score <= 75) { verdict='bearish'; label='Greed — market getting overheated'; }
+  else                  { verdict='bearish'; label='Extreme Greed — potential reversal risk'; }
+  const why = `Score ${score}/100: ${label}`;
+  return { name:'Fear & Greed', verdict, valueText:`Fear & Greed Index: ${score}/100`, why };
 }
 
-// ---------- SIGNAL 4: BTC CORRELATION ----------
-// If BTC is up > 2% → SOL likely follows → bullish
-// If BTC is down > 2% → SOL likely follows → bearish
-// Otherwise → neutral
-function calcBTCCorrelation(btcChange24h) {
-  const verdict = btcChange24h > 2 ? 'bullish' : btcChange24h < -2 ? 'bearish' : 'neutral';
-  const valueText = `BTC 24h change: ${btcChange24h >= 0 ? '+' : ''}${btcChange24h.toFixed(2)}%`;
-  return { verdict, valueText };
+function sigBTC(btcChange) {
+  const v = btcChange ?? 0;
+  const verdict = v > 2 ? 'bullish' : v < -2 ? 'bearish' : 'neutral';
+  const why = v > 2
+    ? `BTC is up ${formatPct(v)} — SOL typically follows Bitcoin's upward moves`
+    : v < -2
+    ? `BTC is down ${formatPct(v)} — Bitcoin weakness tends to drag SOL lower`
+    : `BTC moved ${formatPct(v)} — within neutral range, correlation signal is weak`;
+  return { name:'BTC Correlation', verdict, valueText:`BTC 24h: ${formatPct(v)}`, why };
 }
 
-// ---------- SIGNAL 5: RSI ----------
-// Classic 14-period Relative Strength Index
-// RSI > 70 → overbought → bearish
-// RSI < 30 → oversold   → bullish
-// 30–70    → neutral
-function calcRSI(prices) {
-  if (!prices || prices.length < 15) return { verdict: 'neutral', valueText: 'RSI: insufficient data', rsiValue: 50 };
+function sigRSI(prices) {
+  if (!prices || prices.length < 15) return { name:'RSI', verdict:'neutral', valueText:'RSI: not enough data', why:'Need 14+ days of data to calculate RSI' };
+  const changes = prices.slice(-15).map((p,i,a) => i===0 ? 0 : p-a[i-1]).slice(1);
+  const gains = changes.map(c => c>0 ? c : 0);
+  const losses = changes.map(c => c<0 ? Math.abs(c) : 0);
+  const avgG = gains.reduce((a,b)=>a+b,0)/14;
+  const avgL = losses.reduce((a,b)=>a+b,0)/14;
+  if (avgL === 0) return { name:'RSI', verdict:'bearish', valueText:'RSI: 100 — Extremely overbought', why:'No losing days in 14 periods — heavily overbought' };
+  const rsi = 100 - (100/(1+(avgG/avgL)));
+  const verdict = rsi > 70 ? 'bearish' : rsi < 30 ? 'bullish' : 'neutral';
+  const why = rsi > 70
+    ? `RSI ${rsi.toFixed(1)} — above 70 means overbought, price may pull back soon`
+    : rsi < 30
+    ? `RSI ${rsi.toFixed(1)} — below 30 means oversold, price may bounce upward`
+    : `RSI ${rsi.toFixed(1)} — in neutral zone between 30 and 70`;
+  return { name:'RSI', verdict, valueText:`RSI (14-day): ${rsi.toFixed(1)}`, why };
+}
 
-  const changes = [];
-  for (let i = 1; i < prices.length; i++) {
-    changes.push(prices[i] - prices[i - 1]);
-  }
+function sigTrend(prices, currentPrice) {
+  if (!prices || prices.length < 7) return { name:'7D Trend', verdict:'neutral', valueText:'Trend: insufficient data', why:'Not enough price history to calculate trend' };
+  const last7 = prices.slice(-7);
+  const avg = last7.reduce((a,b)=>a+b,0) / last7.length;
+  const pctAbove = ((currentPrice - avg) / avg) * 100;
+  const verdict = pctAbove > 3 ? 'bullish' : pctAbove < -3 ? 'bearish' : 'neutral';
+  const why = pctAbove > 3
+    ? `Current price is ${formatPct(pctAbove)} above the 7-day average — bullish weekly trend`
+    : pctAbove < -3
+    ? `Current price is ${formatPct(pctAbove)} below the 7-day average — bearish weekly trend`
+    : `Current price is ${formatPct(pctAbove)} from the 7-day average — no strong trend`;
+  return { name:'7D Trend', verdict, valueText:`Price vs 7d avg: ${formatPct(pctAbove)} (avg: ${formatPrice(avg)})`, why };
+}
 
-  const gains = changes.map(c => c > 0 ? c : 0);
-  const losses = changes.map(c => c < 0 ? Math.abs(c) : 0);
-
-  const avgGain = gains.slice(-14).reduce((a, b) => a + b, 0) / 14;
-  const avgLoss = losses.slice(-14).reduce((a, b) => a + b, 0) / 14;
-
-  if (avgLoss === 0) return { verdict: 'bearish', valueText: 'RSI: 100 — Extremely overbought', rsiValue: 100 };
-
-  const rs = avgGain / avgLoss;
-  const rsi = 100 - (100 / (1 + rs));
-
-  let verdict;
-  if (rsi > 70)      verdict = 'bearish';
-  else if (rsi < 30) verdict = 'bullish';
-  else               verdict = 'neutral';
-
-  const valueText = `RSI (14-day): ${rsi.toFixed(1)} — ${rsi > 70 ? 'Overbought ⚠️' : rsi < 30 ? 'Oversold 💡' : 'Neutral zone'}`;
-  return { verdict, valueText, rsiValue: rsi };
+function sigVolatility(prices) {
+  if (!prices || prices.length < 7) return { name:'Volatility', verdict:'neutral', valueText:'Volatility: insufficient data', why:'Not enough data to measure volatility' };
+  const last7 = prices.slice(-7);
+  const pctChanges = last7.slice(1).map((p,i) => Math.abs((p-last7[i])/last7[i]*100));
+  const avgSwing = pctChanges.reduce((a,b)=>a+b,0) / pctChanges.length;
+  let verdict, label;
+  if (avgSwing > 8)      { verdict='neutral'; label='Extreme volatility — signals are unreliable'; }
+  else if (avgSwing > 4) { verdict='neutral'; label='High volatility — predictions less certain'; }
+  else if (avgSwing < 1.5){ verdict='bullish'; label='Low volatility — market is calm and stable'; }
+  else                   { verdict='neutral'; label='Normal volatility range'; }
+  const why = `Average daily swing of ${avgSwing.toFixed(1)}% over 7 days — ${label}`;
+  return { name:'Volatility', verdict, valueText:`Avg daily swing: ±${avgSwing.toFixed(1)}%`, why };
 }
 
 // ============================================================
 //  CONSENSUS ENGINE
-//  Collects all 5 verdicts, counts votes, builds explanation
 // ============================================================
-
 function buildConsensus(signals) {
-  const counts = { bullish: 0, bearish: 0, neutral: 0 };
+  const counts = { bullish:0, bearish:0, neutral:0 };
   signals.forEach(s => counts[s.verdict]++);
+  const total = signals.length;
 
-  let overallVerdict, confidence;
-
-  const max = Math.max(counts.bullish, counts.bearish);
-
-  if (counts.bullish > counts.bearish && counts.bullish >= 3) {
-    overallVerdict = 'bullish';
-    confidence = Math.round((counts.bullish / 5) * 100);
-  } else if (counts.bearish > counts.bullish && counts.bearish >= 3) {
-    overallVerdict = 'bearish';
-    confidence = Math.round((counts.bearish / 5) * 100);
+  let verdict, confidence;
+  if (counts.bullish > counts.bearish && counts.bullish > counts.neutral) {
+    verdict = 'bullish';
+    confidence = Math.round((counts.bullish/total)*100);
+  } else if (counts.bearish > counts.bullish && counts.bearish > counts.neutral) {
+    verdict = 'bearish';
+    confidence = Math.round((counts.bearish/total)*100);
   } else {
-    overallVerdict = 'neutral';
-    confidence = Math.round(((5 - Math.abs(counts.bullish - counts.bearish)) / 5) * 60);
+    verdict = 'neutral';
+    confidence = Math.round(((total - Math.abs(counts.bullish-counts.bearish)) / total) * 55);
   }
 
-  // Build a human-readable explanation of WHY the signals agree
-  const agreedSignals = signals.filter(s => s.verdict === overallVerdict).map(s => s.name);
-  const disagreedSignals = signals.filter(s => s.verdict !== overallVerdict).map(s => s.name);
+  const agreed = signals.filter(s=>s.verdict===verdict).map(s=>s.name);
+  const opposed = signals.filter(s=>s.verdict!==verdict).map(s=>s.name);
 
   let explanation = '';
+  const strength = counts[verdict];
 
-  if (overallVerdict === 'bullish') {
-    explanation = `${agreedSignals.join(', ')} are all pointing upward. `;
-    if (counts.bullish === 5) {
-      explanation += 'This is a rare full agreement — all 5 signals are bullish simultaneously. While this increases confidence, crypto markets can still reverse unexpectedly. The alignment suggests genuine buying pressure across multiple dimensions.';
-    } else if (counts.bullish === 4) {
-      explanation += `${disagreedSignals.join(', ')} is the only signal not agreeing. Strong 4/5 bullish consensus suggests meaningful upward pressure.`;
-    } else {
-      explanation += `With only 3/5 signals bullish, this is a weak consensus. Proceed with extra caution — the market is mixed.`;
-    }
-  } else if (overallVerdict === 'bearish') {
-    explanation = `${agreedSignals.join(', ')} are all pointing downward. `;
-    if (counts.bearish === 5) {
-      explanation += 'Full bearish agreement across all 5 signals — this is a strong warning sign. Multiple data sources simultaneously indicate downward pressure. This does not guarantee a drop but suggests significant risk.';
-    } else if (counts.bearish === 4) {
-      explanation += `${disagreedSignals.join(', ')} is the only signal not agreeing. Strong 4/5 bearish consensus suggests meaningful downward pressure.`;
-    } else {
-      explanation += `With only 3/5 signals bearish, this is a weak consensus. The market is sending mixed signals.`;
-    }
+  if (verdict === 'bullish') {
+    if (strength >= 6) explanation = `Very strong bullish signal — ${agreed.join(', ')} are all pointing upward simultaneously. This rare alignment across ${strength}/7 signals suggests genuine broad-based buying pressure from multiple market dimensions.`;
+    else if (strength >= 5) explanation = `Strong bullish consensus — ${agreed.join(', ')} agree on upward pressure. ${opposed.join(', ')} ${opposed.length===1?'is':'are'} not confirming, adding slight uncertainty.`;
+    else if (strength >= 4) explanation = `Moderate bullish lean — ${agreed.join(', ')} suggest upward momentum but ${opposed.join(', ')} disagree. A real signal, but not overwhelming.`;
+    else explanation = `Weak bullish lean — only ${strength}/7 signals agree. Market is mixed. Treat with caution.`;
+  } else if (verdict === 'bearish') {
+    if (strength >= 6) explanation = `Very strong bearish signal — ${agreed.join(', ')} all point downward. This broad agreement across ${strength}/7 signals suggests significant downward pressure across multiple market dimensions.`;
+    else if (strength >= 5) explanation = `Strong bearish consensus — ${agreed.join(', ')} align on downward pressure. ${opposed.join(', ')} ${opposed.length===1?'is':'are'} not confirming.`;
+    else if (strength >= 4) explanation = `Moderate bearish lean — ${agreed.join(', ')} suggest downward momentum but ${opposed.join(', ')} disagree.`;
+    else explanation = `Weak bearish lean — only ${strength}/7 signals agree. Market is mixed.`;
   } else {
-    explanation = `Signals are divided — ${counts.bullish} bullish, ${counts.bearish} bearish, ${counts.neutral} neutral. `;
-    explanation += 'When signals disagree like this, the market is in an uncertain, undecided state. This often happens during consolidation periods before a larger move in either direction. No strong prediction can be made — this is a good time to wait and watch.';
+    explanation = `Signals are divided: ${counts.bullish} bullish, ${counts.bearish} bearish, ${counts.neutral} neutral. When signals disagree this clearly, the market is in an undecided state — often consolidating before a larger move. No reliable prediction can be made right now.`;
   }
 
-  return { overallVerdict, confidence, counts, explanation };
+  return { verdict, confidence, counts, explanation };
 }
 
 // ============================================================
-//  UPDATE THE UI
+//  CHART
 // ============================================================
+function buildChart(history) {
+  if (!history || !history.prices) return;
 
+  const labels = history.timestamps.slice(-7).map(ts =>
+    new Date(ts).toLocaleDateString('en-AU', { month:'short', day:'numeric' })
+  );
+  const prices = history.prices.slice(-7);
+
+  const ctx = document.getElementById('price-chart');
+  if (!ctx) return;
+
+  if (priceChart) priceChart.destroy();
+
+  priceChart = new Chart(ctx, {
+    type: 'line',
+    data: {
+      labels,
+      datasets: [{
+        label: 'SOL/USD',
+        data: prices,
+        borderColor: '#9945ff',
+        borderWidth: 2.5,
+        pointBackgroundColor: '#9945ff',
+        pointBorderColor: '#04040f',
+        pointBorderWidth: 2,
+        pointRadius: 5,
+        pointHoverRadius: 8,
+        fill: true,
+        backgroundColor: (ctx) => {
+          const gradient = ctx.chart.ctx.createLinearGradient(0, 0, 0, 300);
+          gradient.addColorStop(0, 'rgba(153,69,255,0.25)');
+          gradient.addColorStop(1, 'rgba(153,69,255,0.01)');
+          return gradient;
+        },
+        tension: 0.4,
+      }]
+    },
+    options: {
+      responsive: true,
+      interaction: { mode: 'index', intersect: false },
+      plugins: {
+        legend: { display: false },
+        tooltip: {
+          backgroundColor: '#0e0e24',
+          borderColor: '#1a1a3a',
+          borderWidth: 1,
+          titleColor: '#9999bb',
+          bodyColor: '#ffffff',
+          padding: 12,
+          callbacks: {
+            label: ctx => ' ' + formatPrice(ctx.parsed.y)
+          }
+        }
+      },
+      scales: {
+        x: {
+          grid: { color: 'rgba(255,255,255,0.04)' },
+          ticks: { color: '#555577', font: { size: 11 } }
+        },
+        y: {
+          grid: { color: 'rgba(255,255,255,0.04)' },
+          ticks: {
+            color: '#555577',
+            font: { size: 11 },
+            callback: v => '$' + v.toLocaleString()
+          }
+        }
+      }
+    }
+  });
+}
+
+// ============================================================
+//  UI UPDATERS
+// ============================================================
 function updateSignalCard(id, signal) {
-  const card = document.getElementById('card-' + id);
-  const verdict = document.getElementById('verdict-' + id);
-  const value = document.getElementById('value-' + id);
+  const card     = $('card-'+id);
+  const verdict  = $('verdict-'+id);
+  const value    = $('value-'+id);
+  const why      = $('why-'+id);
 
-  if (card) card.className = 'signal-card ' + signal.verdict;
-
+  if (card)    card.className = 'signal-card ' + signal.verdict;
   if (verdict) {
     verdict.className = 'signal-verdict ' + signal.verdict;
     verdict.textContent = signal.verdict === 'bullish' ? '▲ BULLISH'
-                        : signal.verdict === 'bearish' ? '▼ BEARISH'
-                        : '● NEUTRAL';
+                        : signal.verdict === 'bearish' ? '▼ BEARISH' : '● NEUTRAL';
   }
-
-  if (value) value.textContent = signal.valueText;
+  if (value) value.textContent  = signal.valueText;
+  if (why)   why.textContent    = '→ ' + signal.why;
 }
 
-function updateUI(cryptoData, fearGreedScore, solHistory) {
-  // --- Price ---
-  const sol = cryptoData?.solana;
-  const btc = cryptoData?.bitcoin;
+function updateHistoryLog(price, consensus) {
+  const entry = {
+    time:       timeNow(),
+    price:      formatPrice(price),
+    verdict:    consensus.verdict,
+    confidence: consensus.confidence + '%',
+    votes:      `${consensus.counts.bullish}B ${consensus.counts.bearish}Ba ${consensus.counts.neutral}N`
+  };
+  historyLog.unshift(entry);
+  if (historyLog.length > 10) historyLog.pop();
 
-  if (sol) {
-    const price = sol.usd;
-    setEl('sol-price', formatPrice(price));
+  const log = $('history-log');
+  if (!log) return;
+  log.innerHTML = historyLog.map(e => `
+    <div class="history-row">
+      <span>${e.time}</span>
+      <span>${e.price}</span>
+      <span class="${e.verdict}">${e.verdict.toUpperCase()}</span>
+      <span>${e.confidence}</span>
+      <span style="color:var(--text-3)">${e.votes}</span>
+    </div>
+  `).join('');
+}
 
-    const change = sol.usd_24h_change;
-    const changeEl = document.getElementById('price-change');
-    if (changeEl) {
-      changeEl.textContent = `${change >= 0 ? '▲' : '▼'} ${Math.abs(change).toFixed(2)}% in last 24h`;
-      changeEl.className = 'price-change ' + (change >= 0 ? 'up' : 'down');
-    }
-  }
-
-  // --- Run all 5 signals ---
-  const momentum  = { name: 'Momentum',        ...calcMomentum(sol?.usd_24h_change ?? 0) };
-  const volume    = { name: 'Volume',           ...calcVolume(sol?.usd_24h_vol ?? 0) };
-  const sentiment = { name: 'Fear & Greed',     ...calcFearGreed(fearGreedScore ?? 50) };
-  const btcCorr   = { name: 'BTC Correlation',  ...calcBTCCorrelation(btc?.usd_24h_change ?? 0) };
-  const rsi       = { name: 'RSI',              ...calcRSI(solHistory) };
-
-  const allSignals = [momentum, volume, sentiment, btcCorr, rsi];
-
-  // --- Update each signal card ---
-  updateSignalCard('momentum',  momentum);
-  updateSignalCard('volume',    volume);
-  updateSignalCard('sentiment', sentiment);
-  updateSignalCard('btc',       btcCorr);
-  updateSignalCard('rsi',       rsi);
-
-  // --- Build consensus ---
-  const consensus = buildConsensus(allSignals);
-
-  // Update consensus badge
-  const badge = document.getElementById('consensus-badge');
-  if (badge) {
-    badge.className = 'consensus-badge ' + consensus.overallVerdict;
-    badge.textContent = consensus.overallVerdict === 'bullish' ? '▲ BULLISH'
-                      : consensus.overallVerdict === 'bearish' ? '▼ BEARISH'
-                      : '● NEUTRAL';
-  }
-
-  // Update confidence bar
-  const bar = document.getElementById('confidence-bar');
-  if (bar) bar.style.width = consensus.confidence + '%';
-  setEl('confidence-text', `Signal confidence: ${consensus.confidence}% — based on ${Math.max(consensus.counts.bullish, consensus.counts.bearish, consensus.counts.neutral)}/5 signals agreeing`);
-
-  // Update vote counts
-  setEl('bullish-count', consensus.counts.bullish + ' / 5');
-  setEl('bearish-count', consensus.counts.bearish + ' / 5');
-  setEl('neutral-count', consensus.counts.neutral + ' / 5');
-
-  // Update consensus explanation
-  setEl('breakdown-explanation', consensus.explanation);
-
-  // Update last-updated timestamp
-  setEl('last-updated', 'Last updated: ' + now());
+function animateRing(confidence, verdict) {
+  const ring = $('ring-progress');
+  if (!ring) return;
+  ring.className = 'ring-progress ' + verdict;
+  const offset = CIRCUMFERENCE - (confidence / 100) * CIRCUMFERENCE;
+  ring.style.strokeDashoffset = offset;
 }
 
 // ============================================================
-//  MAIN — fetch everything and run
+//  MAIN UPDATE
 // ============================================================
+function updateUI(crypto, fearGreed, history, details) {
+  const sol = crypto?.solana;
+  const btc = crypto?.bitcoin;
+  const price = sol?.usd ?? 0;
 
+  // --- Market bar ---
+  setText('market-cap',  sol ? formatBig(sol.usd_market_cap) : '--');
+  setText('market-vol',  sol ? formatBig(sol.usd_24h_vol)    : '--');
+  setText('market-rank', details ? '#' + details.market_cap_rank : '--');
+  setText('btc-price',   btc ? formatPrice(btc.usd) : '--');
+
+  const change7d = sol?.usd_7d_change;
+  const el7d = $('market-7d');
+  if (el7d && change7d != null) {
+    el7d.textContent = formatPct(change7d);
+    el7d.className = 'market-stat-value ' + (change7d >= 0 ? 'up' : 'down');
+  }
+
+  // --- Hero price ---
+  setText('sol-price', formatPrice(price));
+
+  const c24 = sol?.usd_24h_change;
+  const p24 = $('change-24h');
+  if (p24 && c24 != null) {
+    p24.textContent = '24h ' + formatPct(c24);
+    p24.className = 'price-change-pill ' + (c24 >= 0 ? 'up' : 'down');
+  }
+  const p7 = $('change-7d');
+  if (p7 && change7d != null) {
+    p7.textContent = '7d ' + formatPct(change7d);
+    p7.className = 'price-change-pill ' + (change7d >= 0 ? 'up' : 'down');
+  }
+
+  // --- Run 7 signals ---
+  const signals = [
+    sigMomentum(c24),
+    sigVolume(sol?.usd_24h_vol),
+    sigFearGreed(fearGreed),
+    sigBTC(btc?.usd_24h_change),
+    sigRSI(history?.prices),
+    sigTrend(history?.prices, price),
+    sigVolatility(history?.prices),
+  ];
+
+  updateSignalCard('momentum',   signals[0]);
+  updateSignalCard('volume',     signals[1]);
+  updateSignalCard('sentiment',  signals[2]);
+  updateSignalCard('btc',        signals[3]);
+  updateSignalCard('rsi',        signals[4]);
+  updateSignalCard('trend',      signals[5]);
+  updateSignalCard('volatility', signals[6]);
+
+  // --- Consensus ---
+  const consensus = buildConsensus(signals);
+
+  animateRing(consensus.confidence, consensus.verdict);
+
+  const rv = $('ring-verdict');
+  if (rv) {
+    rv.className = 'ring-verdict ' + consensus.verdict;
+    rv.textContent = consensus.verdict.toUpperCase();
+  }
+  setText('ring-pct', consensus.confidence + '%');
+  setText('confidence-text', `${consensus.counts[consensus.verdict]} of 7 signals agree`);
+
+  setText('hero-bullish', consensus.counts.bullish);
+  setText('hero-bearish', consensus.counts.bearish);
+  setText('hero-neutral',  consensus.counts.neutral);
+  setText('breakdown-explanation', consensus.explanation);
+
+  // --- History ---
+  updateHistoryLog(price, consensus);
+
+  // --- Chart ---
+  buildChart(history);
+
+  // --- Timestamp ---
+  setText('last-updated', 'Updated ' + timeNow());
+}
+
+// ============================================================
+//  RUN
+// ============================================================
 async function run() {
-  setEl('last-updated', 'Fetching live data...');
-
+  setText('last-updated', 'Fetching live data...');
   try {
-    // Fetch all data sources in parallel (faster than one by one)
-    const [cryptoData, fearGreedScore, solHistory] = await Promise.all([
+    const [crypto, fearGreed, history, details] = await Promise.all([
       fetchCryptoData(),
       fetchFearGreed(),
-      fetchSOLHistory()
+      fetchSOLHistory(),
+      fetchSOLDetails(),
     ]);
-
-    updateUI(cryptoData, fearGreedScore, solHistory);
-
-  } catch (err) {
-    console.error('Run failed:', err);
-    setEl('last-updated', 'Error fetching data — retrying in 60s');
+    updateUI(crypto, fearGreed, history, details);
+  } catch(e) {
+    console.error('Run error:', e);
+    setText('last-updated', 'Error — retrying in 60s');
   }
+  startCountdown();
 }
 
-// ============================================================
-//  INIT — run immediately, then repeat every 60 seconds
-// ============================================================
 run();
-setInterval(run, REFRESH_INTERVAL_MS);
+setInterval(run, REFRESH_MS);

@@ -3,9 +3,10 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-  <title>Solana Price Predictor</title>
+  <title>SOLpredict — Solana Price Intelligence</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet">
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
   <link rel="stylesheet" href="style.css" />
 </head>
 <body>
@@ -16,71 +17,170 @@
       <div class="logo">
         <span class="logo-icon">◎</span>
         <span class="logo-text">SOL<span class="logo-accent">predict</span></span>
+        <span class="logo-version">v2.0</span>
       </div>
-      <div class="header-meta">
-        <span class="live-dot"></span>
-        <span id="last-updated">Fetching data...</span>
+      <div class="header-right">
+        <div class="refresh-wrap">
+          <svg class="refresh-ring" viewBox="0 0 36 36">
+            <circle class="ring-bg" cx="18" cy="18" r="15"/>
+            <circle class="ring-fill" id="ring-fill" cx="18" cy="18" r="15"/>
+          </svg>
+          <span class="refresh-label" id="refresh-label">60s</span>
+        </div>
+        <div class="header-meta">
+          <span class="live-dot"></span>
+          <span id="last-updated">Fetching data...</span>
+        </div>
       </div>
     </div>
   </header>
 
-  <!-- ========== HERO PRICE SECTION ========== -->
+  <!-- ========== MARKET OVERVIEW BAR ========== -->
+  <div class="market-bar">
+    <div class="market-bar-inner">
+      <div class="market-stat">
+        <span class="market-stat-label">MARKET CAP</span>
+        <span class="market-stat-value" id="market-cap">--</span>
+      </div>
+      <div class="market-divider"></div>
+      <div class="market-stat">
+        <span class="market-stat-label">24H VOLUME</span>
+        <span class="market-stat-value" id="market-vol">--</span>
+      </div>
+      <div class="market-divider"></div>
+      <div class="market-stat">
+        <span class="market-stat-label">RANK</span>
+        <span class="market-stat-value" id="market-rank">#--</span>
+      </div>
+      <div class="market-divider"></div>
+      <div class="market-stat">
+        <span class="market-stat-label">7D CHANGE</span>
+        <span class="market-stat-value" id="market-7d">--</span>
+      </div>
+      <div class="market-divider"></div>
+      <div class="market-stat">
+        <span class="market-stat-label">BTC PRICE</span>
+        <span class="market-stat-value" id="btc-price">--</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- ========== HERO ========== -->
   <section class="hero">
     <div class="hero-inner">
+
+      <!-- Left: Price -->
       <div class="price-block">
-        <p class="price-label">SOLANA PRICE (USD)</p>
+        <p class="price-label">SOLANA / USD</p>
         <h1 class="price-value" id="sol-price">--</h1>
-        <p class="price-change" id="price-change">Loading...</p>
-      </div>
-      <div class="consensus-block">
-        <p class="consensus-label">CONSENSUS PREDICTION</p>
-        <div class="consensus-badge" id="consensus-badge">LOADING</div>
-        <div class="confidence-bar-wrap">
-          <div class="confidence-bar" id="confidence-bar"></div>
+        <div class="price-changes">
+          <span class="price-change-pill" id="change-24h">24h --</span>
+          <span class="price-change-pill" id="change-7d">7d --</span>
         </div>
-        <p class="confidence-text" id="confidence-text">Analysing signals...</p>
+      </div>
+
+      <!-- Middle: Consensus Ring -->
+      <div class="consensus-block">
+        <p class="consensus-label">CONSENSUS SIGNAL</p>
+        <div class="ring-container">
+          <svg class="confidence-ring" viewBox="0 0 120 120">
+            <circle class="ring-track" cx="60" cy="60" r="50"/>
+            <circle class="ring-progress" id="ring-progress" cx="60" cy="60" r="50"/>
+          </svg>
+          <div class="ring-inner">
+            <div class="ring-verdict" id="ring-verdict">--</div>
+            <div class="ring-pct" id="ring-pct">--%</div>
+          </div>
+        </div>
+        <p class="confidence-text" id="confidence-text">Analysing...</p>
+      </div>
+
+      <!-- Right: Vote summary -->
+      <div class="vote-summary-block">
+        <p class="consensus-label">SIGNAL VOTES</p>
+        <div class="vote-pills">
+          <div class="vote-pill bullish">
+            <span class="vote-pill-icon">▲</span>
+            <span class="vote-pill-label">Bullish</span>
+            <span class="vote-pill-count" id="hero-bullish">--</span>
+          </div>
+          <div class="vote-pill bearish">
+            <span class="vote-pill-icon">▼</span>
+            <span class="vote-pill-label">Bearish</span>
+            <span class="vote-pill-count" id="hero-bearish">--</span>
+          </div>
+          <div class="vote-pill neutral">
+            <span class="vote-pill-icon">●</span>
+            <span class="vote-pill-label">Neutral</span>
+            <span class="vote-pill-count" id="hero-neutral">--</span>
+          </div>
+        </div>
+        <p class="breakdown-explanation" id="breakdown-explanation">Loading consensus explanation...</p>
+      </div>
+
+    </div>
+  </section>
+
+  <!-- ========== PRICE CHART ========== -->
+  <section class="chart-section">
+    <div class="container">
+      <div class="section-header">
+        <h2 class="section-title">7-Day Price Chart</h2>
+        <p class="section-sub">Live SOL/USD price history with trend overlay</p>
+      </div>
+      <div class="chart-card">
+        <canvas id="price-chart" height="100"></canvas>
       </div>
     </div>
   </section>
 
-  <!-- ========== WHAT IS THIS? EXPLAINER ========== -->
+  <!-- ========== HOW IT WORKS ========== -->
   <section class="explainer-section">
     <div class="container">
       <div class="explainer-box">
-        <h2>How This Works</h2>
-        <p>
-          This tool runs <strong>5 independent prediction signals</strong> on live Solana data. 
-          Each signal analyses a different aspect of the market — price momentum, trading volume, 
-          market sentiment, Bitcoin correlation, and technical strength. 
-          They then <strong>vote</strong> on whether SOL is likely to move up, down, or sideways. 
-          The more signals that agree, the higher the confidence score.
-          This is for <strong>learning and experimentation only</strong> — not financial advice.
-        </p>
+        <div class="explainer-icon">🧪</div>
+        <div>
+          <h2>How The Prediction Engine Works</h2>
+          <p>
+            This tool runs <strong>7 independent signals</strong> on live Solana market data fetched from CoinGecko and Alternative.me.
+            Each signal analyses a different dimension of the market — price momentum, trading volume, market sentiment,
+            Bitcoin correlation, technical strength (RSI), 7-day trend direction, and price volatility.
+            Every signal casts a <strong>vote: bullish, bearish, or neutral</strong>.
+            The consensus engine counts the votes, measures agreement strength, and generates a
+            <strong>confidence-weighted prediction</strong> with a plain-English explanation of why the signals agree or disagree.
+            Data refreshes every 60 seconds. <strong>This is for learning and experimentation only — not financial advice.</strong>
+          </p>
+        </div>
       </div>
     </div>
   </section>
 
-  <!-- ========== 5 SIGNAL CARDS ========== -->
+  <!-- ========== 7 SIGNAL CARDS ========== -->
   <section class="signals-section">
     <div class="container">
-      <h2 class="section-title">The 5 Signals</h2>
+      <div class="section-header">
+        <h2 class="section-title">The 7 Signals</h2>
+        <p class="section-sub">Each signal analyses a different market dimension and votes independently</p>
+      </div>
       <div class="signals-grid">
 
         <!-- Signal 1: Momentum -->
         <div class="signal-card" id="card-momentum">
           <div class="signal-header">
             <span class="signal-icon">⚡</span>
-            <div>
+            <div class="signal-title-wrap">
               <h3 class="signal-name">Momentum</h3>
-              <p class="signal-subtitle">Price acceleration over 24h</p>
+              <p class="signal-subtitle">24h price acceleration</p>
             </div>
             <div class="signal-verdict" id="verdict-momentum">--</div>
           </div>
-          <p class="signal-value" id="value-momentum">Loading...</p>
-          <p class="signal-explanation" id="explanation-momentum">
-            Momentum measures whether the price is speeding up or slowing down. 
-            A rising price with increasing speed suggests buyers are in control. 
-            A falling price with increasing speed suggests sellers are dominating.
+          <div class="signal-value-box" id="value-momentum">Loading...</div>
+          <p class="signal-why" id="why-momentum">--</p>
+          <p class="signal-explanation">
+            Momentum tracks whether price is accelerating upward or downward.
+            A strong positive change means buyers are actively pushing price higher.
+            A strong negative change means sellers are in control. Signals above +3% are bullish,
+            below -3% are bearish. Everything between is neutral territory.
           </p>
         </div>
 
@@ -88,17 +188,19 @@
         <div class="signal-card" id="card-volume">
           <div class="signal-header">
             <span class="signal-icon">📊</span>
-            <div>
+            <div class="signal-title-wrap">
               <h3 class="signal-name">Volume</h3>
-              <p class="signal-subtitle">Trading activity vs average</p>
+              <p class="signal-subtitle">Trading activity vs baseline</p>
             </div>
             <div class="signal-verdict" id="verdict-volume">--</div>
           </div>
-          <p class="signal-value" id="value-volume">Loading...</p>
-          <p class="signal-explanation" id="explanation-volume">
-            Volume is how much SOL has been traded in the last 24 hours. 
-            When volume spikes far above the average, it often means a big move is coming 
-            — or is already happening. Low volume means the market is quiet and less predictable.
+          <div class="signal-value-box" id="value-volume">Loading...</div>
+          <p class="signal-why" id="why-volume">--</p>
+          <p class="signal-explanation">
+            Volume measures how much SOL has been traded in the last 24 hours compared
+            to a typical quiet day ($2.5B baseline). When volume spikes above 150% of baseline,
+            it signals unusual market activity — often preceding or confirming a significant move.
+            Very low volume suggests a quiet, directionless market.
           </p>
         </div>
 
@@ -106,17 +208,19 @@
         <div class="signal-card" id="card-sentiment">
           <div class="signal-header">
             <span class="signal-icon">🧠</span>
-            <div>
+            <div class="signal-title-wrap">
               <h3 class="signal-name">Fear & Greed</h3>
-              <p class="signal-subtitle">Overall crypto market mood</p>
+              <p class="signal-subtitle">Crypto market emotion index</p>
             </div>
             <div class="signal-verdict" id="verdict-sentiment">--</div>
           </div>
-          <p class="signal-value" id="value-sentiment">Loading...</p>
-          <p class="signal-explanation" id="explanation-sentiment">
-            The Fear & Greed Index scores the entire crypto market's emotion from 0 (extreme fear) 
-            to 100 (extreme greed). Extreme fear can mean people are overselling — a potential 
-            buying opportunity. Extreme greed can mean the market is overheated and a drop may follow.
+          <div class="signal-value-box" id="value-sentiment">Loading...</div>
+          <p class="signal-why" id="why-sentiment">--</p>
+          <p class="signal-explanation">
+            The Fear & Greed Index scores the entire crypto market's emotional state from
+            0 (extreme fear — people are panic selling) to 100 (extreme greed — people are
+            euphoric and overbying). This signal is contrarian: extreme fear is often a
+            buying opportunity, extreme greed often precedes a correction.
           </p>
         </div>
 
@@ -124,17 +228,19 @@
         <div class="signal-card" id="card-btc">
           <div class="signal-header">
             <span class="signal-icon">₿</span>
-            <div>
+            <div class="signal-title-wrap">
               <h3 class="signal-name">BTC Correlation</h3>
               <p class="signal-subtitle">Following Bitcoin's lead</p>
             </div>
             <div class="signal-verdict" id="verdict-btc">--</div>
           </div>
-          <p class="signal-value" id="value-btc">Loading...</p>
-          <p class="signal-explanation" id="explanation-btc">
-            Solana and Bitcoin move in the same direction roughly 70% of the time. 
-            When Bitcoin rises, SOL tends to follow. This signal checks whether BTC's 
-            recent 24h movement gives a bullish or bearish hint for SOL.
+          <div class="signal-value-box" id="value-btc">Loading...</div>
+          <p class="signal-why" id="why-btc">--</p>
+          <p class="signal-explanation">
+            SOL and Bitcoin move in the same direction roughly 70% of the time.
+            When Bitcoin rises strongly, altcoins like SOL typically follow within hours.
+            When Bitcoin drops hard, it drags the whole market down. This signal uses
+            BTC's 24h change as a directional hint for SOL's near-term movement.
           </p>
         </div>
 
@@ -142,18 +248,60 @@
         <div class="signal-card" id="card-rsi">
           <div class="signal-header">
             <span class="signal-icon">📈</span>
-            <div>
+            <div class="signal-title-wrap">
               <h3 class="signal-name">RSI</h3>
               <p class="signal-subtitle">Overbought or oversold?</p>
             </div>
             <div class="signal-verdict" id="verdict-rsi">--</div>
           </div>
-          <p class="signal-value" id="value-rsi">Loading...</p>
-          <p class="signal-explanation" id="explanation-rsi">
-            RSI (Relative Strength Index) is a classic trading indicator scored 0–100. 
-            Above 70 means SOL has been bought heavily and may be due for a pullback. 
-            Below 30 means it has been sold heavily and may bounce back up. 
-            Between 30–70 is neutral territory.
+          <div class="signal-value-box" id="value-rsi">Loading...</div>
+          <p class="signal-why" id="why-rsi">--</p>
+          <p class="signal-explanation">
+            RSI (Relative Strength Index) is a classic technical indicator scored 0–100.
+            Above 70 means SOL has been bought heavily and may be due for a pullback (overbought).
+            Below 30 means it has been sold heavily and may bounce back (oversold).
+            Between 30 and 70 is the neutral zone where no strong signal exists.
+          </p>
+        </div>
+
+        <!-- Signal 6: Trend -->
+        <div class="signal-card" id="card-trend">
+          <div class="signal-header">
+            <span class="signal-icon">🔭</span>
+            <div class="signal-title-wrap">
+              <h3 class="signal-name">7D Trend</h3>
+              <p class="signal-subtitle">Price vs weekly average</p>
+            </div>
+            <div class="signal-verdict" id="verdict-trend">--</div>
+          </div>
+          <div class="signal-value-box" id="value-trend">Loading...</div>
+          <p class="signal-why" id="why-trend">--</p>
+          <p class="signal-explanation">
+            This signal compares today's price against the 7-day average price.
+            If SOL is trading significantly above its weekly average, it suggests
+            upward momentum over a longer timeframe. If it's below the weekly average,
+            it suggests a broader downtrend. This filters out short-term noise.
+          </p>
+        </div>
+
+        <!-- Signal 7: Volatility -->
+        <div class="signal-card" id="card-volatility">
+          <div class="signal-header">
+            <span class="signal-icon">🌪️</span>
+            <div class="signal-title-wrap">
+              <h3 class="signal-name">Volatility</h3>
+              <p class="signal-subtitle">How wildly is price swinging?</p>
+            </div>
+            <div class="signal-verdict" id="verdict-volatility">--</div>
+          </div>
+          <div class="signal-value-box" id="value-volatility">Loading...</div>
+          <p class="signal-why" id="why-volatility">--</p>
+          <p class="signal-explanation">
+            Volatility measures the standard deviation of daily price changes over 7 days.
+            High volatility means the price is swinging wildly — predictions become less reliable
+            and risk is higher. Low volatility means the market is calm and consolidating,
+            often before a breakout in either direction. This signal votes neutral when volatility
+            is extreme, as direction becomes impossible to predict.
           </p>
         </div>
 
@@ -161,38 +309,42 @@
     </div>
   </section>
 
-  <!-- ========== CONSENSUS BREAKDOWN ========== -->
-  <section class="breakdown-section">
+  <!-- ========== SIGNAL HISTORY LOG ========== -->
+  <section class="history-section">
     <div class="container">
-      <h2 class="section-title">Signal Consensus Breakdown</h2>
-      <div class="breakdown-box">
-        <div class="vote-row">
-          <span class="vote-label bullish">▲ Bullish votes</span>
-          <span class="vote-count" id="bullish-count">--</span>
+      <div class="section-header">
+        <h2 class="section-title">Prediction History</h2>
+        <p class="section-sub">Last 10 consensus predictions logged this session</p>
+      </div>
+      <div class="history-card">
+        <div class="history-header-row">
+          <span>Time</span>
+          <span>Price</span>
+          <span>Consensus</span>
+          <span>Confidence</span>
+          <span>Signals</span>
         </div>
-        <div class="vote-row">
-          <span class="vote-label bearish">▼ Bearish votes</span>
-          <span class="vote-count" id="bearish-count">--</span>
+        <div id="history-log">
+          <div class="history-empty">Predictions will appear here after the first data fetch...</div>
         </div>
-        <div class="vote-row">
-          <span class="vote-label neutral">● Neutral votes</span>
-          <span class="vote-count" id="neutral-count">--</span>
-        </div>
-        <p class="breakdown-explanation" id="breakdown-explanation">
-          Loading consensus explanation...
-        </p>
       </div>
     </div>
   </section>
 
-  <!-- ========== DISCLAIMER ========== -->
+  <!-- ========== FOOTER ========== -->
   <footer>
     <div class="container">
-      <p class="disclaimer">
-        ⚠️ <strong>This is an educational experiment.</strong> Predictions are generated from 
-        rule-based signals on public data. Cryptocurrency markets are highly unpredictable. 
-        This is not financial advice. Never trade more than you can afford to lose.
-      </p>
+      <div class="footer-inner">
+        <div class="footer-logo">
+          <span class="logo-icon">◎</span>
+          <span class="logo-text">SOL<span class="logo-accent">predict</span></span>
+        </div>
+        <p class="disclaimer">
+          ⚠️ <strong>Educational experiment only.</strong> Predictions are generated from rule-based signals on public data.
+          Cryptocurrency markets are highly unpredictable. This is not financial advice.
+          Never trade more than you can afford to lose.
+        </p>
+      </div>
     </div>
   </footer>
 
