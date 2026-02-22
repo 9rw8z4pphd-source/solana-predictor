@@ -1,0 +1,201 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Solana Price Predictor</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+
+  <!-- ========== HEADER ========== -->
+  <header>
+    <div class="header-inner">
+      <div class="logo">
+        <span class="logo-icon">◎</span>
+        <span class="logo-text">SOL<span class="logo-accent">predict</span></span>
+      </div>
+      <div class="header-meta">
+        <span class="live-dot"></span>
+        <span id="last-updated">Fetching data...</span>
+      </div>
+    </div>
+  </header>
+
+  <!-- ========== HERO PRICE SECTION ========== -->
+  <section class="hero">
+    <div class="hero-inner">
+      <div class="price-block">
+        <p class="price-label">SOLANA PRICE (USD)</p>
+        <h1 class="price-value" id="sol-price">--</h1>
+        <p class="price-change" id="price-change">Loading...</p>
+      </div>
+      <div class="consensus-block">
+        <p class="consensus-label">CONSENSUS PREDICTION</p>
+        <div class="consensus-badge" id="consensus-badge">LOADING</div>
+        <div class="confidence-bar-wrap">
+          <div class="confidence-bar" id="confidence-bar"></div>
+        </div>
+        <p class="confidence-text" id="confidence-text">Analysing signals...</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- ========== WHAT IS THIS? EXPLAINER ========== -->
+  <section class="explainer-section">
+    <div class="container">
+      <div class="explainer-box">
+        <h2>How This Works</h2>
+        <p>
+          This tool runs <strong>5 independent prediction signals</strong> on live Solana data. 
+          Each signal analyses a different aspect of the market — price momentum, trading volume, 
+          market sentiment, Bitcoin correlation, and technical strength. 
+          They then <strong>vote</strong> on whether SOL is likely to move up, down, or sideways. 
+          The more signals that agree, the higher the confidence score.
+          This is for <strong>learning and experimentation only</strong> — not financial advice.
+        </p>
+      </div>
+    </div>
+  </section>
+
+  <!-- ========== 5 SIGNAL CARDS ========== -->
+  <section class="signals-section">
+    <div class="container">
+      <h2 class="section-title">The 5 Signals</h2>
+      <div class="signals-grid">
+
+        <!-- Signal 1: Momentum -->
+        <div class="signal-card" id="card-momentum">
+          <div class="signal-header">
+            <span class="signal-icon">⚡</span>
+            <div>
+              <h3 class="signal-name">Momentum</h3>
+              <p class="signal-subtitle">Price acceleration over 24h</p>
+            </div>
+            <div class="signal-verdict" id="verdict-momentum">--</div>
+          </div>
+          <p class="signal-value" id="value-momentum">Loading...</p>
+          <p class="signal-explanation" id="explanation-momentum">
+            Momentum measures whether the price is speeding up or slowing down. 
+            A rising price with increasing speed suggests buyers are in control. 
+            A falling price with increasing speed suggests sellers are dominating.
+          </p>
+        </div>
+
+        <!-- Signal 2: Volume -->
+        <div class="signal-card" id="card-volume">
+          <div class="signal-header">
+            <span class="signal-icon">📊</span>
+            <div>
+              <h3 class="signal-name">Volume</h3>
+              <p class="signal-subtitle">Trading activity vs average</p>
+            </div>
+            <div class="signal-verdict" id="verdict-volume">--</div>
+          </div>
+          <p class="signal-value" id="value-volume">Loading...</p>
+          <p class="signal-explanation" id="explanation-volume">
+            Volume is how much SOL has been traded in the last 24 hours. 
+            When volume spikes far above the average, it often means a big move is coming 
+            — or is already happening. Low volume means the market is quiet and less predictable.
+          </p>
+        </div>
+
+        <!-- Signal 3: Fear & Greed -->
+        <div class="signal-card" id="card-sentiment">
+          <div class="signal-header">
+            <span class="signal-icon">🧠</span>
+            <div>
+              <h3 class="signal-name">Fear & Greed</h3>
+              <p class="signal-subtitle">Overall crypto market mood</p>
+            </div>
+            <div class="signal-verdict" id="verdict-sentiment">--</div>
+          </div>
+          <p class="signal-value" id="value-sentiment">Loading...</p>
+          <p class="signal-explanation" id="explanation-sentiment">
+            The Fear & Greed Index scores the entire crypto market's emotion from 0 (extreme fear) 
+            to 100 (extreme greed). Extreme fear can mean people are overselling — a potential 
+            buying opportunity. Extreme greed can mean the market is overheated and a drop may follow.
+          </p>
+        </div>
+
+        <!-- Signal 4: BTC Correlation -->
+        <div class="signal-card" id="card-btc">
+          <div class="signal-header">
+            <span class="signal-icon">₿</span>
+            <div>
+              <h3 class="signal-name">BTC Correlation</h3>
+              <p class="signal-subtitle">Following Bitcoin's lead</p>
+            </div>
+            <div class="signal-verdict" id="verdict-btc">--</div>
+          </div>
+          <p class="signal-value" id="value-btc">Loading...</p>
+          <p class="signal-explanation" id="explanation-btc">
+            Solana and Bitcoin move in the same direction roughly 70% of the time. 
+            When Bitcoin rises, SOL tends to follow. This signal checks whether BTC's 
+            recent 24h movement gives a bullish or bearish hint for SOL.
+          </p>
+        </div>
+
+        <!-- Signal 5: RSI -->
+        <div class="signal-card" id="card-rsi">
+          <div class="signal-header">
+            <span class="signal-icon">📈</span>
+            <div>
+              <h3 class="signal-name">RSI</h3>
+              <p class="signal-subtitle">Overbought or oversold?</p>
+            </div>
+            <div class="signal-verdict" id="verdict-rsi">--</div>
+          </div>
+          <p class="signal-value" id="value-rsi">Loading...</p>
+          <p class="signal-explanation" id="explanation-rsi">
+            RSI (Relative Strength Index) is a classic trading indicator scored 0–100. 
+            Above 70 means SOL has been bought heavily and may be due for a pullback. 
+            Below 30 means it has been sold heavily and may bounce back up. 
+            Between 30–70 is neutral territory.
+          </p>
+        </div>
+
+      </div>
+    </div>
+  </section>
+
+  <!-- ========== CONSENSUS BREAKDOWN ========== -->
+  <section class="breakdown-section">
+    <div class="container">
+      <h2 class="section-title">Signal Consensus Breakdown</h2>
+      <div class="breakdown-box">
+        <div class="vote-row">
+          <span class="vote-label bullish">▲ Bullish votes</span>
+          <span class="vote-count" id="bullish-count">--</span>
+        </div>
+        <div class="vote-row">
+          <span class="vote-label bearish">▼ Bearish votes</span>
+          <span class="vote-count" id="bearish-count">--</span>
+        </div>
+        <div class="vote-row">
+          <span class="vote-label neutral">● Neutral votes</span>
+          <span class="vote-count" id="neutral-count">--</span>
+        </div>
+        <p class="breakdown-explanation" id="breakdown-explanation">
+          Loading consensus explanation...
+        </p>
+      </div>
+    </div>
+  </section>
+
+  <!-- ========== DISCLAIMER ========== -->
+  <footer>
+    <div class="container">
+      <p class="disclaimer">
+        ⚠️ <strong>This is an educational experiment.</strong> Predictions are generated from 
+        rule-based signals on public data. Cryptocurrency markets are highly unpredictable. 
+        This is not financial advice. Never trade more than you can afford to lose.
+      </p>
+    </div>
+  </footer>
+
+  <script src="app.js"></script>
+</body>
+</html>
