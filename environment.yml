@@ -1,0 +1,19 @@
+name: solana-research
+channels:
+  - conda-forge
+dependencies:
+  - python=3.11
+  - numpy
+  - pandas
+  - scikit-learn
+  - xgboost
+  - pyarrow
+  - pyyaml
+  - joblib
+  - matplotlib
+  - plotly
+  - streamlit
+  - pip
+  - pip:
+      - ccxt
+      - ta

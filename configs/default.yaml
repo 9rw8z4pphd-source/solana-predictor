@@ -1,0 +1,50 @@
+data:
+  symbol: SOL/USDT
+  timeframe: 1h
+  exchange: binance
+  ohlcv_limit: 1000
+  raw_path: data/raw/sol_1h.csv
+  processed_parquet_path: data/processed/dataset_1h.parquet
+  processed_csv_path: data/processed/dataset_1h.csv
+  dataset_with_regime_path: data/processed/dataset_with_regime.parquet
+  min_history_hours: 3000
+  allow_synthetic_fallback: true
+
+features:
+  target_horizons: [4, 12, 24]
+  vol_horizon: 24
+  vol_threshold_quantile: 0.75
+  vol_threshold_lookback: 2160
+  rolling_vol_window: 24
+  volume_z_window: 24
+
+model:
+  random_state: 42
+  n_splits: 5
+  tscv_test_size: 300
+  logistic:
+    C: 1.0
+    max_iter: 1000
+  xgboost:
+    n_estimators: 300
+    max_depth: 4
+    learning_rate: 0.05
+    subsample: 0.9
+    colsample_bytree: 0.9
+    reg_lambda: 1.0
+
+regime:
+  n_clusters: 4
+  feature_columns: [rolling_vol_24, adx_14, trend_strength]
+
+backtest:
+  long_threshold: 0.55
+  short_threshold: 0.45
+  fee_per_side: 0.001
+
+artifacts:
+  model_dir: artifacts/models
+  metrics_json: reports/metrics.json
+  metrics_csv: reports/metrics.csv
+  predictions_csv: reports/predictions.csv
+  calibration_csv: reports/calibration.csv
